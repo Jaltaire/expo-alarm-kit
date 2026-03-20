@@ -6,6 +6,14 @@ import ExpoAlarmKitModule, {
 export { AuthorizationStatus, LaunchPayload };
 
 /**
+ * Check if AlarmKit is available on this device (iOS 26+).
+ * Returns false on older iOS versions and on Android.
+ */
+export function isAvailable(): boolean {
+  return ExpoAlarmKitModule.isAvailable();
+}
+
+/**
  * Configure the module with an App Group identifier.
  * This MUST be called before any other methods to enable shared storage
  * between your app and the alarm dismiss intent.
@@ -198,6 +206,7 @@ export function getLaunchPayload(): LaunchPayload | null {
 
 // Default export object for namespace-style usage
 const ExpoAlarmKit = {
+  isAvailable,
   configure,
   requestAuthorization,
   generateUUID,

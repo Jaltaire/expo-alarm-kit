@@ -11,13 +11,15 @@ Pod::Spec.new do |s|
   s.author         = package['author']
   s.homepage       = package['homepage']
   s.platforms      = {
-    :ios => '26.0',
+    :ios => '15.1',
   }
   s.swift_version  = '5.9'
-  s.source         = { git: 'https://github.com/nickdeupree/expo-alarm-kit' }
+  s.source         = { git: 'https://github.com/Jaltaire/expo-alarm-kit' }
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
+
+  s.weak_framework = 'AlarmKit'
 
   # Swift/Objective-C compatibility
   s.pod_target_xcconfig = {

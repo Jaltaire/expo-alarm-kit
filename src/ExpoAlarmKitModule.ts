@@ -47,6 +47,12 @@ export interface ScheduleRepeatingAlarmOptions {
 
 interface ExpoAlarmKitModuleType {
   /**
+   * Check if AlarmKit is available on this device (iOS 26+).
+   * @returns True if AlarmKit is available.
+   */
+  isAvailable(): boolean;
+
+  /**
    * Configure the module with an App Group identifier.
    * This MUST be called before any other methods.
    * @param appGroupIdentifier - The App Group identifier (e.g., "group.com.yourapp.alarms")
