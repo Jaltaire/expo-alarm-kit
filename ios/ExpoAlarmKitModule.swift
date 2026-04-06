@@ -83,9 +83,10 @@ private func colorFromHex(_ hex: String) -> Color {
 }
 #endif
 
-private func buildLaunchPayload(alarmId: String, payload: String?) -> [String: Any] {
+private func buildLaunchPayload(alarmId: String, action: String, payload: String?) -> [String: Any] {
     return [
         "alarmId": alarmId,
+        "action": action,
         "payload": payload ?? NSNull()
     ]
 }
@@ -153,7 +154,7 @@ public struct AlarmDismissIntent: LiveActivityIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        ExpoAlarmKitModule.launchPayload = buildLaunchPayload(alarmId: self.alarmId, payload: self.payload)
+        ExpoAlarmKitModule.pendingEvent = buildLaunchPayload(alarmId: self.alarmId, action: "dismiss", payload: self.payload)
         ExpoAlarmKitStorage.removeAlarm(id: self.alarmId)
         ExpoAlarmKitStorage.removeLaunchAppOnDismiss(alarmId: self.alarmId)
         return .result()
@@ -180,7 +181,7 @@ public struct AlarmDismissIntentWithLaunch: LiveActivityIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        ExpoAlarmKitModule.launchPayload = buildLaunchPayload(alarmId: self.alarmId, payload: self.payload)
+        ExpoAlarmKitModule.pendingEvent = buildLaunchPayload(alarmId: self.alarmId, action: "dismiss", payload: self.payload)
         ExpoAlarmKitStorage.removeAlarm(id: self.alarmId)
         ExpoAlarmKitStorage.removeLaunchAppOnDismiss(alarmId: self.alarmId)
         return .result()
@@ -207,7 +208,7 @@ public struct AlarmSnoozeIntent: LiveActivityIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        ExpoAlarmKitModule.launchPayload = buildLaunchPayload(alarmId: self.alarmId, payload: self.payload)
+        ExpoAlarmKitModule.pendingEvent = buildLaunchPayload(alarmId: self.alarmId, action: "snooze", payload: self.payload)
         return .result()
     }
 }
@@ -232,7 +233,7 @@ public struct AlarmSnoozeIntentWithLaunch: LiveActivityIntent {
     }
 
     public func perform() async throws -> some IntentResult {
-        ExpoAlarmKitModule.launchPayload = buildLaunchPayload(alarmId: self.alarmId, payload: self.payload)
+        ExpoAlarmKitModule.pendingEvent = buildLaunchPayload(alarmId: self.alarmId, action: "snooze", payload: self.payload)
         return .result()
     }
 }
@@ -240,10 +241,16 @@ public struct AlarmSnoozeIntentWithLaunch: LiveActivityIntent {
 
 // MARK: - Expo Module
 public class ExpoAlarmKitModule: Module {
-    public static var launchPayload: [String: Any]? = nil
+    public static var pendingEvent: [String: Any]? = nil
 
     public func definition() -> ModuleDefinition {
         Name("ExpoAlarmKit")
+
+        Events("onAlarmAction")
+
+        OnStartObserving {
+            self.emitPendingEvent()
+        }
 
         // MARK: - Check Availability
         Function("isAvailable") { () -> Bool in
@@ -364,11 +371,23 @@ public class ExpoAlarmKitModule: Module {
             ExpoAlarmKitStorage.clearAllAlarms()
         }
 
-        // MARK: - Get Launch Payload
+        // MARK: - Get Launch Payload (legacy, kept for backwards compatibility)
         Function("getLaunchPayload") { () -> [String: Any]? in
-            let payload = ExpoAlarmKitModule.launchPayload
-            ExpoAlarmKitModule.launchPayload = nil
+            let payload = ExpoAlarmKitModule.pendingEvent
+            ExpoAlarmKitModule.pendingEvent = nil
             return payload
+        }
+
+        // MARK: - Check and Emit Pending Event
+        Function("checkPendingEvent") { () in
+            self.emitPendingEvent()
+        }
+    }
+
+    private func emitPendingEvent() {
+        if let event = ExpoAlarmKitModule.pendingEvent {
+            self.sendEvent("onAlarmAction", event)
+            ExpoAlarmKitModule.pendingEvent = nil
         }
     }
 
@@ -389,17 +408,19 @@ public class ExpoAlarmKitModule: Module {
 
         let date = Date(timeIntervalSince1970: epochSeconds)
         let launchAppOnDismiss = options["launchAppOnDismiss"] as? Bool ?? false
-        let doSnoozeIntent = options["doSnoozeIntent"] as? Bool ?? false
-        let launchAppOnSnooze = options["launchAppOnSnooze"] as? Bool ?? false
         let soundName = options["soundName"] as? String
         let dismissPayload = options["dismissPayload"] as? String
-        let snoozePayload = options["snoozePayload"] as? String
         let stopButtonLabel = options["stopButtonLabel"] as? String ?? "Stop"
-        let snoozeButtonLabel = options["snoozeButtonLabel"] as? String ?? "Snooze"
         let stopButtonColor = options["stopButtonColor"] as? String
-        let snoozeButtonColor = options["snoozeButtonColor"] as? String
         let tintColorHex = options["tintColor"] as? String
-        let snoozeDuration = options["snoozeDuration"] as? Int ?? (9 * 60)
+
+        let snoozeConfig = options["snooze"] as? [String: Any]
+        let hasSnooze = snoozeConfig != nil
+        let snoozeDuration = snoozeConfig?["durationSeconds"] as? Int ?? (9 * 60)
+        let snoozeButtonLabel = snoozeConfig?["buttonLabel"] as? String ?? "Snooze"
+        let snoozeButtonColor = snoozeConfig?["buttonColor"] as? String
+        let snoozePayload = snoozeConfig?["payload"] as? String
+        let launchAppOnSnooze = snoozeConfig?["launchApp"] as? Bool ?? false
 
         let stopColor = stopButtonColor != nil ? colorFromHex(stopButtonColor!) : Color.white
         let stopButton = AlarmButton(
@@ -408,19 +429,26 @@ public class ExpoAlarmKitModule: Module {
             systemImageName: "stop.circle"
         )
 
-        let snoozeColor = snoozeButtonColor != nil ? colorFromHex(snoozeButtonColor!) : Color.white
-        let snoozeButton = AlarmButton(
-            text: LocalizedStringResource(stringLiteral: snoozeButtonLabel),
-            textColor: snoozeColor,
-            systemImageName: "clock.badge.checkmark"
-        )
-
-        let alertPresentation = AlarmPresentation.Alert(
-            title: LocalizedStringResource(stringLiteral: title),
-            stopButton: stopButton,
-            secondaryButton: snoozeButton,
-            secondaryButtonBehavior: .countdown
-        )
+        let alertPresentation: AlarmPresentation.Alert
+        if hasSnooze {
+            let snoozeColor = snoozeButtonColor != nil ? colorFromHex(snoozeButtonColor!) : Color.white
+            let snoozeButton = AlarmButton(
+                text: LocalizedStringResource(stringLiteral: snoozeButtonLabel),
+                textColor: snoozeColor,
+                systemImageName: "clock.badge.checkmark"
+            )
+            alertPresentation = AlarmPresentation.Alert(
+                title: LocalizedStringResource(stringLiteral: title),
+                stopButton: stopButton,
+                secondaryButton: snoozeButton,
+                secondaryButtonBehavior: .countdown
+            )
+        } else {
+            alertPresentation = AlarmPresentation.Alert(
+                title: LocalizedStringResource(stringLiteral: title),
+                stopButton: stopButton
+            )
+        }
 
         let presentation = AlarmPresentation(alert: alertPresentation)
         let countdownDuration = Alarm.CountdownDuration(preAlert: nil, postAlert: TimeInterval(snoozeDuration))
@@ -439,7 +467,7 @@ public class ExpoAlarmKitModule: Module {
             : AlarmDismissIntent(alarmId: id, payload: dismissPayload)
 
         let secondaryIntent: (any LiveActivityIntent)?
-        if doSnoozeIntent {
+        if hasSnooze {
             secondaryIntent = launchAppOnSnooze
                 ? AlarmSnoozeIntentWithLaunch(alarmId: id, payload: snoozePayload)
                 : AlarmSnoozeIntent(alarmId: id, payload: snoozePayload)
@@ -481,17 +509,19 @@ public class ExpoAlarmKitModule: Module {
         }
 
         let launchAppOnDismiss = options["launchAppOnDismiss"] as? Bool ?? false
-        let doSnoozeIntent = options["doSnoozeIntent"] as? Bool ?? false
-        let launchAppOnSnooze = options["launchAppOnSnooze"] as? Bool ?? false
         let soundName = options["soundName"] as? String
         let dismissPayload = options["dismissPayload"] as? String
-        let snoozePayload = options["snoozePayload"] as? String
         let stopButtonLabel = options["stopButtonLabel"] as? String ?? "Stop"
-        let snoozeButtonLabel = options["snoozeButtonLabel"] as? String ?? "Snooze"
         let stopButtonColor = options["stopButtonColor"] as? String
-        let snoozeButtonColor = options["snoozeButtonColor"] as? String
         let tintColorHex = options["tintColor"] as? String
-        let snoozeDuration = options["snoozeDuration"] as? Int ?? (9 * 60)
+
+        let snoozeConfig = options["snooze"] as? [String: Any]
+        let hasSnooze = snoozeConfig != nil
+        let snoozeDuration = snoozeConfig?["durationSeconds"] as? Int ?? (9 * 60)
+        let snoozeButtonLabel = snoozeConfig?["buttonLabel"] as? String ?? "Snooze"
+        let snoozeButtonColor = snoozeConfig?["buttonColor"] as? String
+        let snoozePayload = snoozeConfig?["payload"] as? String
+        let launchAppOnSnooze = snoozeConfig?["launchApp"] as? Bool ?? false
 
         let weekdayArray: [Locale.Weekday] = Array(Set(weekdaysRaw.compactMap { day -> Locale.Weekday? in
             switch day {
@@ -517,19 +547,26 @@ public class ExpoAlarmKitModule: Module {
             systemImageName: "stop.circle"
         )
 
-        let snoozeColor = snoozeButtonColor != nil ? colorFromHex(snoozeButtonColor!) : Color.white
-        let snoozeButton = AlarmButton(
-            text: LocalizedStringResource(stringLiteral: snoozeButtonLabel),
-            textColor: snoozeColor,
-            systemImageName: "clock.badge.checkmark"
-        )
-
-        let alertPresentation = AlarmPresentation.Alert(
-            title: LocalizedStringResource(stringLiteral: title),
-            stopButton: stopButton,
-            secondaryButton: snoozeButton,
-            secondaryButtonBehavior: .countdown
-        )
+        let alertPresentation: AlarmPresentation.Alert
+        if hasSnooze {
+            let snoozeColor = snoozeButtonColor != nil ? colorFromHex(snoozeButtonColor!) : Color.white
+            let snoozeButton = AlarmButton(
+                text: LocalizedStringResource(stringLiteral: snoozeButtonLabel),
+                textColor: snoozeColor,
+                systemImageName: "clock.badge.checkmark"
+            )
+            alertPresentation = AlarmPresentation.Alert(
+                title: LocalizedStringResource(stringLiteral: title),
+                stopButton: stopButton,
+                secondaryButton: snoozeButton,
+                secondaryButtonBehavior: .countdown
+            )
+        } else {
+            alertPresentation = AlarmPresentation.Alert(
+                title: LocalizedStringResource(stringLiteral: title),
+                stopButton: stopButton
+            )
+        }
 
         let presentation = AlarmPresentation(alert: alertPresentation)
         let countdownDuration = Alarm.CountdownDuration(preAlert: nil, postAlert: TimeInterval(snoozeDuration))
@@ -548,7 +585,7 @@ public class ExpoAlarmKitModule: Module {
             : AlarmDismissIntent(alarmId: id, payload: dismissPayload)
 
         let secondaryIntent: (any LiveActivityIntent)?
-        if doSnoozeIntent {
+        if hasSnooze {
             secondaryIntent = launchAppOnSnooze
                 ? AlarmSnoozeIntentWithLaunch(alarmId: id, payload: snoozePayload)
                 : AlarmSnoozeIntent(alarmId: id, payload: snoozePayload)

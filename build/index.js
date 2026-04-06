@@ -1,4 +1,6 @@
+import { EventEmitter } from 'expo-modules-core';
 import ExpoAlarmKitModule from './ExpoAlarmKitModule';
+const emitter = new EventEmitter(ExpoAlarmKitModule);
 /**
  * Check if AlarmKit is available on this device (iOS 26+).
  * Returns false on older iOS versions and on Android.
@@ -50,7 +52,6 @@ export function generateUUID() {
  * @returns True if the alarm was scheduled successfully.
  */
 export async function scheduleAlarm(options) {
-    // Convert Date to epochSeconds if provided
     let epochSeconds;
     if (options.date !== undefined && options.epochSeconds !== undefined) {
         throw new Error('Provide either epochSeconds or date, not both');
@@ -64,10 +65,10 @@ export async function scheduleAlarm(options) {
     else {
         throw new Error('Must provide either epochSeconds or date');
     }
-    // Pass to native module with epochSeconds
     return ExpoAlarmKitModule.scheduleAlarm({
         ...options,
         epochSeconds,
+        snooze: options.snooze ?? null,
     });
 }
 /**
@@ -76,7 +77,10 @@ export async function scheduleAlarm(options) {
  * @returns True if the alarm was scheduled successfully.
  */
 export async function scheduleRepeatingAlarm(options) {
-    return ExpoAlarmKitModule.scheduleRepeatingAlarm(options);
+    return ExpoAlarmKitModule.scheduleRepeatingAlarm({
+        ...options,
+        snooze: options.snooze ?? null,
+    });
 }
 /**
  * Cancel a scheduled alarm.
@@ -94,6 +98,9 @@ export async function cancelAlarm(id) {
 export function getAllAlarms() {
     return ExpoAlarmKitModule.getAllAlarms();
 }
+/**
+ * Clear all alarms from App Group storage (does not cancel native alarms).
+ */
 export function clearAllAlarms() {
     ExpoAlarmKitModule.clearAllAlarms();
 }
@@ -106,15 +113,42 @@ export function removeAlarm(id) {
     ExpoAlarmKitModule.removeAlarm(id);
 }
 /**
- * Get the launch payload if the app was opened from an alarm dismiss/snooze intent.
- * The payload contains the alarmId and payload string (or null if not provided).
+ * Get the launch payload if the app was opened from an alarm dismiss/snooze action.
+ * The payload includes an `action` field ("dismiss" or "snooze") to distinguish the trigger.
  * Note: The payload is cleared after retrieval, so subsequent calls will return null.
  * @returns The launch payload or null if not launched from an alarm.
  */
 export function getLaunchPayload() {
     return ExpoAlarmKitModule.getLaunchPayload();
 }
-// Default export object for namespace-style usage
+/**
+ * Check for and emit any pending alarm action event.
+ * Call this on app foreground to catch events that occurred while the app was backgrounded.
+ */
+export function checkPendingEvent() {
+    ExpoAlarmKitModule.checkPendingEvent();
+}
+/**
+ * Add a listener for alarm action events (dismiss or snooze).
+ * The listener receives an AlarmActionEvent with the alarm ID, action type, and optional payload.
+ *
+ * @example
+ * ```typescript
+ * const subscription = ExpoAlarmKit.addAlarmActionListener((event) => {
+ *   if (event.action === 'snooze') {
+ *     // Reset timer countdown
+ *   } else if (event.action === 'dismiss') {
+ *     // Clear timer
+ *   }
+ * });
+ *
+ * // Clean up when done
+ * subscription.remove();
+ * ```
+ */
+export function addAlarmActionListener(listener) {
+    return emitter.addListener('onAlarmAction', listener);
+}
 const ExpoAlarmKit = {
     isAvailable,
     configure,
@@ -127,6 +161,8 @@ const ExpoAlarmKit = {
     clearAllAlarms,
     removeAlarm,
     getLaunchPayload,
+    checkPendingEvent,
+    addAlarmActionListener,
 };
 export default ExpoAlarmKit;
 //# sourceMappingURL=index.js.map

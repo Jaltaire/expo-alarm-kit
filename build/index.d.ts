@@ -1,5 +1,6 @@
-import { AuthorizationStatus, LaunchPayload } from './ExpoAlarmKitModule';
-export { AuthorizationStatus, LaunchPayload };
+import { type EventSubscription } from 'expo-modules-core';
+import { AuthorizationStatus, AlarmActionType, AlarmActionEvent, LaunchPayload, SnoozeConfig } from './ExpoAlarmKitModule';
+export { AuthorizationStatus, AlarmActionType, AlarmActionEvent, LaunchPayload, SnoozeConfig };
 /**
  * Check if AlarmKit is available on this device (iOS 26+).
  * Returns false on older iOS versions and on Android.
@@ -50,26 +51,19 @@ export interface ScheduleAlarmOptions {
     soundName?: string;
     /** Whether to launch the app when the alarm stop button is pressed. Defaults to false. */
     launchAppOnDismiss?: boolean;
-    /** Whether to run a custom snooze intent when the snooze button is pressed. Defaults to false. */
-    doSnoozeIntent?: boolean;
-    /** Whether to launch the app when the custom snooze intent runs. Defaults to false. */
-    launchAppOnSnooze?: boolean;
-    /** Optional payload string returned by getLaunchPayload when dismissed. Defaults to null. */
+    /** Optional payload string passed back in the alarm action event when dismissed. Defaults to null. */
     dismissPayload?: string;
-    /** Optional payload string returned by getLaunchPayload when snoozed. Defaults to null. */
-    snoozePayload?: string;
     /** Custom label for the stop button (default: 'Stop') */
     stopButtonLabel?: string;
-    /** Custom label for the snooze button (default: 'Snooze') */
-    snoozeButtonLabel?: string;
     /** Hex color for the stop button text (default: '#FFFFFF') */
     stopButtonColor?: string;
-    /** Hex color for the snooze button text (default: '#FFFFFF') */
-    snoozeButtonColor?: string;
     /** Hex color for the overall alarm tint (default: '#0000FF') */
     tintColor?: string;
-    /** Snooze duration in seconds (default: 540 = 9 minutes) */
-    snoozeDuration?: number;
+    /**
+     * Snooze configuration. If provided, a snooze button is shown on the alarm.
+     * If omitted, no snooze button is displayed.
+     */
+    snooze?: SnoozeConfig;
 }
 /**
  * Schedule a one-time alarm.
@@ -92,26 +86,19 @@ export interface ScheduleRepeatingAlarmOptions {
     soundName?: string;
     /** Whether to launch the app when the alarm stop button is pressed. Defaults to false. */
     launchAppOnDismiss?: boolean;
-    /** Whether to run a custom snooze intent when the snooze button is pressed. Defaults to false. */
-    doSnoozeIntent?: boolean;
-    /** Whether to launch the app when the custom snooze intent runs. Defaults to false. */
-    launchAppOnSnooze?: boolean;
-    /** Optional payload string returned by getLaunchPayload when dismissed. Defaults to null. */
+    /** Optional payload string passed back in the alarm action event when dismissed. Defaults to null. */
     dismissPayload?: string;
-    /** Optional payload string returned by getLaunchPayload when snoozed. Defaults to null. */
-    snoozePayload?: string;
     /** Custom label for the stop button (default: 'Stop') */
     stopButtonLabel?: string;
-    /** Custom label for the snooze button (default: 'Snooze') */
-    snoozeButtonLabel?: string;
     /** Hex color for the stop button text (default: '#FFFFFF') */
     stopButtonColor?: string;
-    /** Hex color for the snooze button text (default: '#FFFFFF') */
-    snoozeButtonColor?: string;
     /** Hex color for the overall alarm tint (default: '#0000FF') */
     tintColor?: string;
-    /** Snooze duration in seconds (default: 540 = 9 minutes) */
-    snoozeDuration?: number;
+    /**
+     * Snooze configuration. If provided, a snooze button is shown on the alarm.
+     * If omitted, no snooze button is displayed.
+     */
+    snooze?: SnoozeConfig;
 }
 /**
  * Schedule a weekly repeating alarm.
@@ -131,6 +118,9 @@ export declare function cancelAlarm(id: string): Promise<boolean>;
  * @returns Array of alarm IDs.
  */
 export declare function getAllAlarms(): string[];
+/**
+ * Clear all alarms from App Group storage (does not cancel native alarms).
+ */
 export declare function clearAllAlarms(): void;
 /**
  * Remove an alarm from App Group storage.
@@ -139,12 +129,36 @@ export declare function clearAllAlarms(): void;
  */
 export declare function removeAlarm(id: string): void;
 /**
- * Get the launch payload if the app was opened from an alarm dismiss/snooze intent.
- * The payload contains the alarmId and payload string (or null if not provided).
+ * Get the launch payload if the app was opened from an alarm dismiss/snooze action.
+ * The payload includes an `action` field ("dismiss" or "snooze") to distinguish the trigger.
  * Note: The payload is cleared after retrieval, so subsequent calls will return null.
  * @returns The launch payload or null if not launched from an alarm.
  */
 export declare function getLaunchPayload(): LaunchPayload | null;
+/**
+ * Check for and emit any pending alarm action event.
+ * Call this on app foreground to catch events that occurred while the app was backgrounded.
+ */
+export declare function checkPendingEvent(): void;
+/**
+ * Add a listener for alarm action events (dismiss or snooze).
+ * The listener receives an AlarmActionEvent with the alarm ID, action type, and optional payload.
+ *
+ * @example
+ * ```typescript
+ * const subscription = ExpoAlarmKit.addAlarmActionListener((event) => {
+ *   if (event.action === 'snooze') {
+ *     // Reset timer countdown
+ *   } else if (event.action === 'dismiss') {
+ *     // Clear timer
+ *   }
+ * });
+ *
+ * // Clean up when done
+ * subscription.remove();
+ * ```
+ */
+export declare function addAlarmActionListener(listener: (event: AlarmActionEvent) => void): EventSubscription;
 declare const ExpoAlarmKit: {
     isAvailable: typeof isAvailable;
     configure: typeof configure;
@@ -157,6 +171,8 @@ declare const ExpoAlarmKit: {
     clearAllAlarms: typeof clearAllAlarms;
     removeAlarm: typeof removeAlarm;
     getLaunchPayload: typeof getLaunchPayload;
+    checkPendingEvent: typeof checkPendingEvent;
+    addAlarmActionListener: typeof addAlarmActionListener;
 };
 export default ExpoAlarmKit;
 //# sourceMappingURL=index.d.ts.map

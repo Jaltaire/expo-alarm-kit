@@ -2,30 +2,47 @@ import { requireNativeModule } from 'expo-modules-core';
 
 export type AuthorizationStatus = 'authorized' | 'denied' | 'notDetermined';
 
-export interface LaunchPayload {
+export type AlarmActionType = 'dismiss' | 'snooze';
+
+export interface AlarmActionEvent {
   alarmId: string;
+  action: AlarmActionType;
   payload: string | null;
 }
 
-export interface ScheduleAlarmOptions {
+export interface LaunchPayload {
+  alarmId: string;
+  action: AlarmActionType;
+  payload: string | null;
+}
+
+export interface SnoozeConfig {
+  /** Snooze duration in seconds (default: 540 = 9 minutes) */
+  durationSeconds?: number;
+  /** Custom label for the snooze button (default: 'Snooze') */
+  buttonLabel?: string;
+  /** Hex color for the snooze button text (default: '#FFFFFF') */
+  buttonColor?: string;
+  /** Optional payload string passed back in the alarm action event when snoozed */
+  payload?: string;
+  /** Whether to launch the app when the snooze button is pressed. Defaults to false. */
+  launchApp?: boolean;
+}
+
+export interface NativeScheduleAlarmOptions {
   id: string;
   epochSeconds: number;
   title: string;
   soundName?: string | null;
   launchAppOnDismiss?: boolean;
-  doSnoozeIntent?: boolean;
-  launchAppOnSnooze?: boolean;
   dismissPayload?: string | null;
-  snoozePayload?: string | null;
   stopButtonLabel?: string | null;
-  snoozeButtonLabel?: string | null;
   stopButtonColor?: string | null;
-  snoozeButtonColor?: string | null;
   tintColor?: string | null;
-  snoozeDuration?: number | null;
+  snooze?: SnoozeConfig | null;
 }
 
-export interface ScheduleRepeatingAlarmOptions {
+export interface NativeScheduleRepeatingAlarmOptions {
   id: string;
   hour: number;
   minute: number;
@@ -33,16 +50,11 @@ export interface ScheduleRepeatingAlarmOptions {
   title: string;
   soundName?: string | null;
   launchAppOnDismiss?: boolean;
-  doSnoozeIntent?: boolean;
-  launchAppOnSnooze?: boolean;
   dismissPayload?: string | null;
-  snoozePayload?: string | null;
   stopButtonLabel?: string | null;
-  snoozeButtonLabel?: string | null;
   stopButtonColor?: string | null;
-  snoozeButtonColor?: string | null;
   tintColor?: string | null;
-  snoozeDuration?: number | null;
+  snooze?: SnoozeConfig | null;
 }
 
 interface ExpoAlarmKitModuleType {
@@ -77,14 +89,14 @@ interface ExpoAlarmKitModuleType {
    * @param options - Alarm configuration options.
    * @returns True if scheduling succeeded.
    */
-  scheduleAlarm(options: ScheduleAlarmOptions): Promise<boolean>;
+  scheduleAlarm(options: NativeScheduleAlarmOptions): Promise<boolean>;
 
   /**
    * Schedule a weekly repeating alarm.
    * @param options - Alarm configuration options.
    * @returns True if scheduling succeeded.
    */
-  scheduleRepeatingAlarm(options: ScheduleRepeatingAlarmOptions): Promise<boolean>;
+  scheduleRepeatingAlarm(options: NativeScheduleRepeatingAlarmOptions): Promise<boolean>;
 
   /**
    * Cancel a scheduled alarm.
@@ -117,6 +129,12 @@ interface ExpoAlarmKitModuleType {
    * @returns The launch payload or null if not launched from an alarm.
    */
   getLaunchPayload(): LaunchPayload | null;
+
+  /**
+   * Check for and emit any pending alarm action event.
+   * Call this on app foreground to catch events that occurred while the app was backgrounded.
+   */
+  checkPendingEvent(): void;
 }
 
 export default requireNativeModule<ExpoAlarmKitModuleType>('ExpoAlarmKit');
